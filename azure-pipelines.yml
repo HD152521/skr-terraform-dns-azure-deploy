@@ -23,6 +23,8 @@ variables:
     value: '$(BASE_DIR)/state/${{ parameters.ENV }}/${{ parameters.PROJECT }}/$(STACK-DNS)'
   - name: VAR_FILE
     value: 'records.auto.tfvars.json'
+  - name: AUZRE_KEY
+    value: '${{ parameters.ENV }}/${{ parameters.PROJECT }}/$(STACK-DNS).tfstate'
 
 stages:
   - stage: Prepare
@@ -89,7 +91,7 @@ stages:
               inlineScript: |
                 set -e
                 cd $(WORK_DIR)
-                terraform init -backend-config="key=${{ parameters.ENV }}/${{ parameters.PROJECT }}/$(STACK-DNS).tfstate" 2>error.log
+                terraform init -backend-config="key=$(AUZRE_KEY)" 2>error.log
             displayName: 'Terraform Init'
 
   - stage: Plan
