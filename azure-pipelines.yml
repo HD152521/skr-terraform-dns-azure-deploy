@@ -20,9 +20,9 @@ variables:
   - name: WORK_DIR
     value: '$(BASE_DIR)/runs/${{ parameters.REQUEST_ID }}'
   - name: STATE_DIR
-    value: '$(BASE_DIR)/state/${{ parameters.ENV }}/${{ parameters.PROJECT }}/$(STACK-STG)'
+    value: '$(BASE_DIR)/state/${{ parameters.ENV }}/${{ parameters.PROJECT }}/$(STACK-DNS)'
   - name: VAR_FILE
-    value: 'stg-acc.auto.tfvars.json'
+    value: 'records.auto.tfvars.json'
 
 stages:
   - stage: Prepare
@@ -36,49 +36,41 @@ stages:
               sudo mkdir -p $(WORK_DIR) $(STATE_DIR)
               sudo chown -R ubuntu:ubuntu $(BASE_DIR)
               cd $(WORK_DIR)
-
+              
               {
-              cat << EOF > terraform.tfvars.json
+              cat << 'EOF' > terraform.tfvars.json
               ${{ parameters.VARIABLE }}
               EOF
-
+              
               mv $(Build.SourcesDirectory)/* $(WORK_DIR)
-
+              
               STATE_FILE="$(STATE_DIR)/$(VAR_FILE)"
               if [ -f "$STATE_FILE" ]; then
                 cp "$STATE_FILE" $(WORK_DIR)/merged.json
               else
-                echo '{"storage_accounts":{}}' > $(WORK_DIR)/merged.json
+                echo '{"private_dns_records":{}}' > $(WORK_DIR)/merged.json
               fi
-
-              jq -r '.storage_accounts[] | "\(.resource_group_name)__\(.storage_account_config.name)"' terraform.tfvars.json > stg-acc-keys.txt
-
+              
+              jq -c '.private_dns_records[] | "\(.resource_group_name)__\(.dns_zone_name)__\(.name)"' terraform.tfvars.json > record-keys.txt
+              
               while read -r target_key; do
+                  target_key=$(echo "$target_key" | jq -r .)
                   if [ "${{ parameters.ACTION }}" = "delete" ]; then
                       jq --arg k "$target_key" \
-                          '.storage_accounts |= with_entries(
-                              select((.value.resource_group_name + "__" + .value.storage_account_config.name) != $k)
-                          )' \
+                          '.private_dns_records |= with_entries(select(("\(.value.resource_group_name)__\(.value.dns_zone_name)__\(.value.name)") != $k))' \
                           merged.json > tmp.json && mv tmp.json merged.json
                   else
                       spec=$(jq -c --arg k "$target_key" \
-                          '.storage_accounts[] | select(
-                              (.resource_group_name + "__" + .storage_account_config.name) == $k
-                          )' \
+                        '.private_dns_records[] | select("\(.resource_group_name)__\(.dns_zone_name)__\(.name)" == $k)' \
                           terraform.tfvars.json)
                       jq --arg k "$target_key" --argjson spec "$spec" \
-                          '.storage_accounts |= (
-                              with_entries(select(
-                                  (.value.resource_group_name + "__" + .value.storage_account_config.name) != $k
-                              )) + {($k): $spec}
-                          )' \
+                          '.private_dns_records |= (with_entries(select(("\(.value.resource_group_name)__\(.value.dns_zone_name)__\(.value.name)") != $k)) + {($k): $spec})' \
                           merged.json > tmp.json && mv tmp.json merged.json
                   fi
-              done < stg-acc-keys.txt
-
+              done < record-keys.txt
 
               mv merged.json $(VAR_FILE)
-              
+            
               } 2>error.log
             displayName: 'Prepare TFVars'
 
@@ -115,8 +107,8 @@ stages:
               inlineScript: |
                 set -e
                 cd $(WORK_DIR)
-                terraform plan -var-file=$(VAR_FILE) -out=tfplan 2>&1
-                terraform show -json tfplan > tfplan.json || true
+                terraform plan -var-file=$(VAR_FILE) -out=tfplan 2>error.log
+                terraform show -json tfplan > tfplan.json
             displayName: 'Terraform Plan'
 
   - stage: NotifyPlanSuccess
