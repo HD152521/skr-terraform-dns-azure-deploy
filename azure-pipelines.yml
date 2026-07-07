@@ -89,7 +89,7 @@ stages:
               inlineScript: |
                 set -e
                 cd $(WORK_DIR)
-                terraform init 2>error.log
+                terraform init -backend-config="key=${{ parameters.ENV }}/${{ parameters.PROJECT }}/$(STACK-DNS).tfstate" 2>error.log
             displayName: 'Terraform Init'
 
   - stage: Plan
